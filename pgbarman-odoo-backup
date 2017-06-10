@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# pgbarman-odoo-backup - runs barman backup and also backs up odoo filesystem.
+# pgbarman-odoo-backup - Backs up postgres configuration files and odoo filesystem.
 #                        By default it snapshots 90 days worth of filesystem data.
 #
 # Run as the barman user
@@ -65,10 +65,6 @@ rotate_snapshot()
 	# step 5: update the mtime of hourly.0 to reflect the snapshot time
 	touch $_dir/$IDENT.0
 }
-
-# backup the database
-echo "Backing up database ${SERVER} ..."
-barman backup ${SERVER}
 
 # Copy postgresql configuration files
 if ! [ -d "${PGCONFIG_BACKUP_DIR}" ]; then
