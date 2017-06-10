@@ -1,0 +1,79 @@
+#!/bin/sh
+
+# Run as the barman user
+# Pre-requisites:
+#                 1. odoo user should have a valid shell
+#                 2. barman public ssh key in both postgres' and odoo user's
+#                    authorized_keys file
+#
+# Usage: env SERVER=<barman host id> SERVER_HOST=foo ODOO_USER=bar pgbarman-fs-backup.sh
+#
+
+SERVER=${SERVER:="pg"}
+SERVER_HOST=${SERVER_HOST:="10.90.12.5"}
+BARMAN_BACKUP_DIR=${BARMAN_BACKUP_DIR:="/var/lib/barman/${SERVER}"}
+FS_BACKUP_DIR="${BARMAN_BACKUP_DIR}/filesystem"
+ODOO_BACKUP_DIR="${FS_BACKUP_DIR}/opt/odoo"
+PGCONFIG_BACKUP_DIR="${FS_BACKUP_DIR}/etc/postgresql"
+SNAPSHOT_MAX=3
+IDENT=weekly
+ODOO_USER=${ODOO_USER:="odoo"}
+ODOO_HOME=${ODOO_HOME:="/opt/${ODOO_USER}"}
+
+# rotate_snapshot
+#	$1 = root rotation directory
+#	$2 = rsync src dir
+#
+rotate_snapshot()
+{
+	local _dir="$1"
+	local _cur=$SNAPSHOT_MAX
+	local _prev=NA
+	local _rsync_src=$2
+	if [ -z "$_dir" -o -z "$_rsync-src" ]; then
+		echo "Ooops! Not enough arguments to rotate_snapshot()."
+		return 1
+	fi
+
+	while [ $_cur -ge 0 ]; do
+		if [ $_cur -eq $SNAPSHOT_MAX -a -d $_dir/$IDENT.$_cur ] ; then
+			# step 1: delete the oldest snapshot, if it exists:
+			echo "Removing $IDENT.$_cur ..."
+			rm -r $_dir/$IDENT.$_cur
+		elif [ -d $_dir/$IDENT.$_cur ]; then
+			# step 2 - n: shift the middle snapshots(s) back by one, if they exist
+			echo "Moving $IDENT.$_cur -> $IDENT.$_prev"
+			mv $_dir/$IDENT.$_cur $_dir/$IDENT.$_prev
+		fi ;
+		_prev=$_cur
+		_cur=$((_cur - 1))
+	done
+
+	# step 3: rsync from the system into the latest snapshot (notice that
+	# rsync behaves like cp --remove-destination by default, so the destination
+	# is unlinked first.  If it were not so, this would copy over the other
+	# snapshot(s) too!
+	link_dest=
+	if [ -d "$_dir/$IDENT.1" ]; then
+		link_dest="--link-dest=$_dir/$IDENT.1"
+	fi
+	rsync -vaz --delete $link_dest $_rsync_src $_dir/$IDENT.0 
+
+	# step 5: update the mtime of hourly.0 to reflect the snapshot time
+	touch $_dir/$IDENT.0
+}
+
+# Copy postgresql configuration files
+if ! [ -d "${PGCONFIG_BACKUP_DIR}" ]; then
+	mkdir -p "${PGCONFIG_BACKUP_DIR}" || exit 1
+fi
+echo "Snapshoting PostgreSQL configuration files ..."
+rotate_snapshot "${PGCONFIG_BACKUP_DIR}" postgres@${SERVER_HOST}:/etc/postgresql/
+
+# Copy Odoo home directory, which includes filestore
+if ! [ -d "${ODOO_BACKUP_DIR}" ]; then
+	mkdir -p "${ODOO_BACKUP_DIR}" || exit 1
+fi
+echo "Snapshoting Odoo home directory, which includes local filestore ..."
+rotate_snapshot "${ODOO_BACKUP_DIR}"  ${ODOO_USER}@${SERVER_HOST}:${ODOO_HOME}
+
