@@ -63,6 +63,10 @@ rotate_snapshot()
 	touch $_dir/$IDENT.0
 }
 
+# backup the database
+echo "Backing up database ${SERVER} ..."
+barman backup ${SERVER}
+
 # Copy postgresql configuration files
 if ! [ -d "${PGCONFIG_BACKUP_DIR}" ]; then
 	mkdir -p "${PGCONFIG_BACKUP_DIR}" || exit 1
